@@ -1,0 +1,67 @@
+- Overview of AI Stock Scanner Capabilities  
+  - Analyzes single stock tickers over selectable timeframes (6 months, 1 year, 2 years).  
+  - Displays candlestick charts with optional RSI buy signals (RSI < 30).  
+  - Predicts the likelihood of stock price increase 5 trading days ahead using an ensemble of three machine learning models.  
+  - Shows key metrics including test accuracy, precision, training days, latest data date, and live prediction probability.
+
+- Multi-Ticker Scanning  
+  - Scans over 100 stocks from a predefined list with sector classifications.  
+  - Allows filtering by sector (e.g., Technology, Healthcare).  
+  - Presents results in a color-coded table: green for bullish (>65%), red for bearish (<35%), and gray for neutral.  
+  - Highlights the most bullish and bearish stocks at the top.  
+  - Enables exporting results to CSV with one click.
+
+- Machine Learning Models  
+  - Uses an ensemble of XGBoost, Random Forest, and LightGBM models with soft voting for predictions.  
+  - Training involves 80% historical data and 20% testing, using 50+ technical indicators and macroeconomic data.  
+  - Walk-forward validation is applied.  
+  - Scanner model trains on-the-fly for each ticker with recent data for precise predictions.
+
+- Feature Engineering  
+  - Incorporates technical indicators from the `ta` library (momentum, trend, volatility, volume).  
+  - Includes macroeconomic data such as VIX, 10-Year Treasury Yield, Crude Oil Futures, and sector ETFs with rolling correlations.  
+  - Aligns macro and sector data to stock trading days.
+
+- User Management and Subscription  
+  - Free tier allows 5 scans per user, tracked via session state.  
+  - Pro subscription offers unlimited scans, integrated with Stripe for $20/month payments.  
+  - Payment confirmation updates user status via webhook and database.  
+  - Supports manual license key activation as a fallback.  
+  - Session state maintains user data and scan results.
+
+- Data Sources and Caching  
+  - Uses Yahoo Finance for price data, technical indicators, and macro/sector data.  
+  - Employs caching with time-to-live settings to reduce API calls and improve performance.  
+  - Scanner results persist in session state.
+
+- User Interface and Experience  
+  - Built with Streamlit for a clean, responsive design with sidebar filters and main content area.  
+  - Features interactive charts including candlestick and backtest equity curves.  
+  - Provides real-time feedback with spinners and messages.  
+  - Mobile-friendly layout and one-click CSV export.
+
+- Security and Configuration  
+  - Manages secrets like Stripe keys and license keys securely via Streamlit Cloud and environment variables.  
+  - Uses `.gitignore` to exclude sensitive files.  
+  - Implements error handling with graceful fallbacks for data failures.
+
+- Deployment Details  
+  - Live app hosted at [ai-swing-trade-scanner-316.streamlit.app](https://ai-swing-trade-scanner-316.streamlit.app).  
+  - Flask webhook on Render handles Stripe events and subscription status checks.  
+  - Supabase PostgreSQL database stores paid user information.  
+  - Model files are stored in the repository for automatic loading.
+
+- Future-Proof Design  
+  - Modular code structure allows easy addition of new features and indicators.  
+  - Ticker list managed via CSV for simple updates without code changes.  
+  - Supports multiple model versions with fallback options.  
+  - Paywall system designed for extensibility to other payment methods or subscription plans.
+
+- Summary  
+  - The scanner is a production-ready AI trading tool with advanced features and a user-friendly interface.  
+  - It predicts 5-day stock momentum using an ensemble of machine learning models enhanced with macro and sector data.  
+  - Free users have limited scans, while Pro subscribers enjoy unlimited access through Stripe integration.  
+  - The tool offers a comprehensive solution for AI-driven stock analysis.
+
+- Invitation  
+  - Offers to explore specific features or discuss future upgrades.
