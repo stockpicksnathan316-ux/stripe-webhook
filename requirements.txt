@@ -1,2 +1,5 @@
-gunicorn 
-supabase 
+flask
+gunicorn
+stripe
+supabase
+python-dotenv
