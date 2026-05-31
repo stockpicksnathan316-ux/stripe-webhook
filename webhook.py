@@ -1,24 +1,23 @@
 import os
 import stripe
+import threading
+from datetime import datetime
 from flask import Flask, request, jsonify
 from supabase import create_client
 from dotenv import load_dotenv
-from datetime import datetime
-import threading
 
 load_dotenv()
 
 app = Flask(__name__)
 
-# Initialize Supabase
+# Environment variables
 supabase_url = os.getenv('SUPABASE_URL')
 supabase_key = os.getenv('SUPABASE_SERVICE_KEY')
 stripe.api_key = os.getenv('STRIPE_API_KEY')
 endpoint_secret = os.getenv('STRIPE_WEBHOOK_SECRET')
 
+# Initialize Supabase
 supabase = create_client(supabase_url, supabase_key)
-print(f"SUPABASE_URL = {os.getenv('SUPABASE_URL')}")
-print(f"SUPABASE_SERVICE_KEY (first 10 chars) = {os.getenv('SUPABASE_SERVICE_KEY')[:10]}...")
 
 def process_event_async(event):
     """Process webhook events in background to avoid timeout"""
@@ -53,53 +52,29 @@ def process_event_async(event):
 def webhook():
     print("🔔 Webhook received!")
     
-    # Get raw payload for debugging
     payload = request.get_data(as_text=True)
-    print(f"Raw payload (first 300 chars): {payload[:300]}")
+    sig_header = request.headers.get('Stripe-Signature')
     
-    # Skip signature verification for now – just parse JSON
-    event = request.get_json()
-    print(f"Parsed event type: {event.get('type')}")
+    # Verify signature
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, endpoint_secret)
+    except ValueError as e:
+        print(f"❌ Invalid payload: {e}")
+        return jsonify({'error': 'Invalid payload'}), 400
+    except stripe.error.SignatureVerificationError as e:
+        print(f"❌ Signature verification failed: {e}")
+        return jsonify({'error': 'Signature verification failed'}), 400
     
-    # Process the event directly (no background thread for simplicity)
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        email = session['customer_details']['email']
-        customer_id = session.get('customer')
-        print(f"📧 Email: {email}")
-        print(f"🆔 Customer ID: {customer_id}")
-        
-        supabase.table('paid_users').upsert({
-            'email': email,
-            'is_pro': True,
-            'stripe_customer_id': customer_id,
-            'created_at': datetime.utcnow().isoformat()
-        }).execute()
-        
-        print(f"✅ Pro access granted to {email}")
-        
-    elif event['type'] == 'customer.subscription.deleted':
-        sub = event['data']['object']
-        customer_id = sub['customer']
-        supabase.table('paid_users').update({'is_pro': False}).eq('stripe_customer_id', customer_id).execute()
-        print(f"❌ Pro access revoked for customer {customer_id}")
-    else:
-        print(f"ℹ️ Unhandled event: {event['type']}")
+    print(f"✅ Event verified: {event['type']}")
+    
+    # Process in background to respond quickly
+    threading.Thread(target=process_event_async, args=(event,)).start()
     
     return jsonify({'status': 'success'}), 200
 
 @app.route('/health', methods=['GET'])
 def health():
     return jsonify({'status': 'ok'}), 200
-
-@app.route('/debug', methods=['GET'])
-def debug():
-    supabase_url = os.getenv('SUPABASE_URL')
-    supabase_key = os.getenv('SUPABASE_SERVICE_KEY')
-    return jsonify({
-        'supabase_url': supabase_url,
-        'supabase_key_prefix': supabase_key[:10] if supabase_key else None
-    })
 
 if __name__ == '__main__':
     app.run(port=4242)
