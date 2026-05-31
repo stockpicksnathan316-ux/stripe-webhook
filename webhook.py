@@ -92,5 +92,14 @@ def webhook():
 def health():
     return jsonify({'status': 'ok'}), 200
 
+@app.route('/debug', methods=['GET'])
+def debug():
+    supabase_url = os.getenv('SUPABASE_URL')
+    supabase_key = os.getenv('SUPABASE_SERVICE_KEY')
+    return jsonify({
+        'supabase_url': supabase_url,
+        'supabase_key_prefix': supabase_key[:10] if supabase_key else None
+    })
+
 if __name__ == '__main__':
     app.run(port=4242)
