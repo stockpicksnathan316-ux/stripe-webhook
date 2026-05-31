@@ -35,7 +35,7 @@ def process_event_async(event):
                 'is_pro': True,
                 'stripe_customer_id': customer_id,
                 'created_at': datetime.utcnow().isoformat()
-            }).execute()
+            }, on_conflict='email').execute()
             
             print(f"✅ Pro access granted to {email}")
             
