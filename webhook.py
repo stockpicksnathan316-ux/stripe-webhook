@@ -17,6 +17,8 @@ stripe.api_key = os.getenv('STRIPE_API_KEY')
 endpoint_secret = os.getenv('STRIPE_WEBHOOK_SECRET')
 
 supabase = create_client(supabase_url, supabase_key)
+print(f"SUPABASE_URL = {os.getenv('SUPABASE_URL')}")
+print(f"SUPABASE_SERVICE_KEY (first 10 chars) = {os.getenv('SUPABASE_SERVICE_KEY')[:10]}...")
 
 def process_event_async(event):
     """Process webhook events in background to avoid timeout"""
