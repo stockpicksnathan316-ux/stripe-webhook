@@ -44,14 +44,12 @@ def process_event_async(event):
             email = session['customer_details']['email']
             customer_id = session['customer'] if 'customer' in session else None
             
-            # Upsert with conflict handling on email
             result = supabase.table('paid_users').upsert({
                 'email': email,
                 'is_pro': True,
                 'stripe_customer_id': customer_id
             }, on_conflict='email').execute()
             logger.info(f"Upsert result: {result}")
-            
             logger.info(f"✅ Pro access granted to {email}")
             
         elif event_type == 'customer.subscription.deleted':
@@ -59,6 +57,21 @@ def process_event_async(event):
             customer_id = sub['customer']
             supabase.table('paid_users').update({'is_pro': False}).eq('stripe_customer_id', customer_id).execute()
             logger.info(f"❌ Pro access revoked for customer {customer_id}")
+        
+        # --- NEW HANDLER for failed payments ---
+        elif event_type == 'invoice.payment_failed':
+            invoice = event['data']['object']
+            customer_id = invoice.get('customer')
+            if customer_id:
+                # Immediately revoke pro access on payment failure
+                supabase.table('paid_users').update({'is_pro': False}).eq('stripe_customer_id', customer_id).execute()
+                logger.warning(f"⚠️ Payment failed for customer {customer_id}. Pro access revoked.")
+                # Option: use a 'payment_overdue' column instead of immediate revoke
+                # supabase.table('paid_users').update({'payment_overdue': True}).eq('stripe_customer_id', customer_id).execute()
+                # logger.warning(f"Payment failed for customer {customer_id}. Marked past due, access still active.")
+            else:
+                logger.error("Invoice.payment_failed event missing customer ID")
+        
         else:
             logger.info(f"ℹ️ Unhandled event type: {event_type}")
             
