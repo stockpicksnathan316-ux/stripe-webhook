@@ -45,11 +45,12 @@ def process_event_async(event):
             customer_id = session.get('customer')
             
             # Upsert with conflict handling on email
-            supabase.table('paid_users').upsert({
+            result = supabase.table('paid_users').upsert({
                 'email': email,
                 'is_pro': True,
                 'stripe_customer_id': customer_id
             }, on_conflict='email').execute()
+            logger.info(f"Upsert result: {result}")
             
             logger.info(f"✅ Pro access granted to {email}")
             
@@ -58,13 +59,13 @@ def process_event_async(event):
             customer_id = sub['customer']
             supabase.table('paid_users').update({'is_pro': False}).eq('stripe_customer_id', customer_id).execute()
             logger.info(f"❌ Pro access revoked for customer {customer_id}")
-            
         else:
             logger.info(f"ℹ️ Unhandled event type: {event_type}")
             
     except Exception as e:
-        # Log error but don't raise – we already responded to Stripe
-        logger.error(f"Background processing error: {str(e)}")
+        import traceback
+        logger.error(f"Background processing error: {e}")
+        logger.error(traceback.format_exc())
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
