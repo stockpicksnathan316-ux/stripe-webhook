@@ -42,7 +42,7 @@ def process_event_async(event):
         if event_type == 'checkout.session.completed':
             session = event['data']['object']
             email = session['customer_details']['email']
-            customer_id = session.get('customer')
+            customer_id = session['customer'] if 'customer' in session else None
             
             # Upsert with conflict handling on email
             result = supabase.table('paid_users').upsert({
