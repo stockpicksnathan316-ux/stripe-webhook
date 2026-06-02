@@ -49,7 +49,7 @@ def process_event_async(event):
                 'email': email,
                 'is_pro': True,
                 'stripe_customer_id': customer_id,
-                'updated_at': datetime.utcnow().isoformat()
+                #'updated_at': datetime.utcnow().isoformat()   # remove or comment out
             }, on_conflict='email').execute()
             
             logger.info(f"✅ Pro access granted to {email}")
