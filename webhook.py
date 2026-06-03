@@ -61,7 +61,7 @@ def process_event_async(event):
         # --- NEW HANDLER for failed payments ---
         elif event_type == 'invoice.payment_failed':
             invoice = event['data']['object']
-            customer_id = invoice.get('customer')
+            customer_id = invoice['customer'] if 'customer' in invoice else None
             if customer_id:
                 # Immediately revoke pro access on payment failure
                 supabase.table('paid_users').update({'is_pro': False}).eq('stripe_customer_id', customer_id).execute()
