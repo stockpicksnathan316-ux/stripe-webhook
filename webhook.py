@@ -2,6 +2,7 @@ import os
 import stripe
 import threading
 import logging
+import requests  # <-- Add this for calling Brevo API
 from datetime import datetime
 from flask import Flask, request, jsonify
 from supabase import create_client
@@ -21,6 +22,8 @@ SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_SERVICE_KEY = os.getenv('SUPABASE_SERVICE_KEY')
 STRIPE_API_KEY = os.getenv('STRIPE_API_KEY')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
+BREVO_API_KEY = os.getenv('BREVO_API_KEY')          # <-- Add this
+BREVO_LIST_ID = os.getenv('BREVO_LIST_ID', '3')     # <-- Add this (default '3')
 
 # Initialize Stripe and Supabase
 stripe.api_key = STRIPE_API_KEY
@@ -101,6 +104,59 @@ def webhook():
     
     # Respond immediately to Stripe
     return jsonify({'status': 'success'}), 200
+
+# ------------------------- NEW: Brevo subscription endpoint -------------------------
+@app.route('/subscribe', methods=['POST'])
+def subscribe():
+    """Accept email and forward to Brevo API using stored API key."""
+    data = request.get_json()
+    if not data or 'email' not in data:
+        return jsonify({'error': 'Email missing'}), 400
+    
+    email = data['email']
+    utm_source = data.get('utm_source', 'direct')
+    utm_medium = data.get('utm_medium', 'organic')
+    utm_campaign = data.get('utm_campaign', 'landing_page')
+    
+    if not BREVO_API_KEY:
+        logger.error("BREVO_API_KEY not set in environment")
+        return jsonify({'error': 'Server configuration error'}), 500
+    
+    # Prepare payload for Brevo API
+    brevo_payload = {
+        "email": email,
+        "emailBlacklisted": False,
+        "smsBlacklisted": False,
+        "updateEnabled": True,
+        "listIds": [int(BREVO_LIST_ID)],
+        "attributes": {
+            "UTM_SOURCE": utm_source,
+            "UTM_MEDIUM": utm_medium,
+            "UTM_CAMPAIGN": utm_campaign
+        }
+    }
+    
+    headers = {
+        'Content-Type': 'application/json',
+        'api-key': BREVO_API_KEY
+    }
+    
+    try:
+        response = requests.post('https://api.brevo.com/v3/contacts', 
+                                 json=brevo_payload, 
+                                 headers=headers, 
+                                 timeout=10)
+        if response.status_code in (201, 204):
+            return jsonify({'status': 'subscribed'}), 200
+        elif response.status_code == 400 and 'duplicate' in response.text:
+            # Contact already exists -> still success from user perspective
+            return jsonify({'status': 'already_exists'}), 200
+        else:
+            logger.error(f"Brevo error: {response.status_code} - {response.text}")
+            return jsonify({'error': 'Brevo API error'}), 500
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Request to Brevo failed: {e}")
+        return jsonify({'error': 'Network error'}), 500
 
 @app.route('/health', methods=['GET'])
 def health():
