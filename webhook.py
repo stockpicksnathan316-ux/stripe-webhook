@@ -7,11 +7,13 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from supabase import create_client
 from dotenv import load_dotenv
+from flask_cors import CORS
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": "https://stockpicksnathan316-ux.github.io"}})
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
