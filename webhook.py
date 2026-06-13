@@ -2,18 +2,24 @@ import os
 import stripe
 import threading
 import logging
-import requests  # <-- Add this for calling Brevo API
+import requests
 from datetime import datetime
 from flask import Flask, request, jsonify
 from supabase import create_client
 from dotenv import load_dotenv
-from flask_cors import CORS
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "https://stockpicksnathan316-ux.github.io"}})
+
+# CORS headers (manual)
+@app.after_request
+def add_cors_headers(response):
+    response.headers['Access-Control-Allow-Origin'] = 'https://stockpicksnathan316-ux.github.io'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Methods'] = 'POST, OPTIONS'
+    return response
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -24,8 +30,8 @@ SUPABASE_URL = os.getenv('SUPABASE_URL')
 SUPABASE_SERVICE_KEY = os.getenv('SUPABASE_SERVICE_KEY')
 STRIPE_API_KEY = os.getenv('STRIPE_API_KEY')
 STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET')
-BREVO_API_KEY = os.getenv('BREVO_API_KEY')          # <-- Add this
-BREVO_LIST_ID = os.getenv('BREVO_LIST_ID', '3')     # <-- Add this (default '3')
+BREVO_API_KEY = os.getenv('BREVO_API_KEY')
+BREVO_LIST_ID = os.getenv('BREVO_LIST_ID', '3')
 
 # Initialize Stripe and Supabase
 stripe.api_key = STRIPE_API_KEY
@@ -63,17 +69,12 @@ def process_event_async(event):
             supabase.table('paid_users').update({'is_pro': False}).eq('stripe_customer_id', customer_id).execute()
             logger.info(f"❌ Pro access revoked for customer {customer_id}")
         
-        # --- NEW HANDLER for failed payments ---
         elif event_type == 'invoice.payment_failed':
             invoice = event['data']['object']
             customer_id = invoice['customer'] if 'customer' in invoice else None
             if customer_id:
-                # Immediately revoke pro access on payment failure
                 supabase.table('paid_users').update({'is_pro': False}).eq('stripe_customer_id', customer_id).execute()
                 logger.warning(f"⚠️ Payment failed for customer {customer_id}. Pro access revoked.")
-                # Option: use a 'payment_overdue' column instead of immediate revoke
-                # supabase.table('paid_users').update({'payment_overdue': True}).eq('stripe_customer_id', customer_id).execute()
-                # logger.warning(f"Payment failed for customer {customer_id}. Marked past due, access still active.")
             else:
                 logger.error("Invoice.payment_failed event missing customer ID")
         
@@ -87,11 +88,9 @@ def process_event_async(event):
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    # Get raw payload and signature header
     payload = request.get_data(as_text=True)
     sig_header = request.headers.get('Stripe-Signature')
     
-    # Verify signature
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
     except ValueError as e:
@@ -101,20 +100,21 @@ def webhook():
         logger.error(f"Signature verification failed: {e}")
         return jsonify({'error': 'Signature verification failed'}), 400
     
-    # Start background thread to process event
     threading.Thread(target=process_event_async, args=(event,)).start()
-    
-    # Respond immediately to Stripe
     return jsonify({'status': 'success'}), 200
 
-# ------------------------- NEW: Brevo subscription endpoint -------------------------
-@app.route('/subscribe', methods=['POST'])
+# ------------------------- Brevo subscription endpoint -------------------------
+@app.route('/subscribe', methods=['POST', 'OPTIONS'])
 def subscribe():
-    """Accept email and forward to Brevo API using stored API key."""
+    # Handle preflight OPTIONS request
+    if request.method == 'OPTIONS':
+        return '', 200
+
+    # Handle POST request
     data = request.get_json()
     if not data or 'email' not in data:
         return jsonify({'error': 'Email missing'}), 400
-    
+
     email = data['email']
     utm_source = data.get('utm_source', 'direct')
     utm_medium = data.get('utm_medium', 'organic')
@@ -124,7 +124,6 @@ def subscribe():
         logger.error("BREVO_API_KEY not set in environment")
         return jsonify({'error': 'Server configuration error'}), 500
     
-    # Prepare payload for Brevo API
     brevo_payload = {
         "email": email,
         "emailBlacklisted": False,
@@ -151,7 +150,6 @@ def subscribe():
         if response.status_code in (201, 204):
             return jsonify({'status': 'subscribed'}), 200
         elif response.status_code == 400 and 'duplicate' in response.text:
-            # Contact already exists -> still success from user perspective
             return jsonify({'status': 'already_exists'}), 200
         else:
             logger.error(f"Brevo error: {response.status_code} - {response.text}")
