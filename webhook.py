@@ -191,10 +191,20 @@ def send_weekly_report():
     # 2. Gather earnings surprises (with politeness delay)
     earnings_data = []
     for ticker in tickers[:20]:  # Reduced to 20 tickers
+        logger.info(f"Loop iteration for {ticker}")
         try:
             time.sleep(0.3)  # Wait 0.3 seconds between requests to avoid rate limiting
             stock = yf.Ticker(ticker)
             earnings = stock.earnings_dates
+    
+            # ----- DEBUG LINES (placed AFTER earnings is assigned) -----
+            logger.info(f"Ticker: {ticker}, earnings is None? {earnings is None}")
+            if earnings is not None and not earnings.empty:
+                logger.info(f"  -> Has earnings data, columns: {list(earnings.columns)}")
+            else:
+                logger.info(f"  -> No earnings data for {ticker}")
+            # -----------------------------------------------------------
+
             if earnings is not None and not earnings.empty:
                 # Get most recent quarter
                 latest = earnings.iloc[0]
