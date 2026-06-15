@@ -162,5 +162,133 @@ def subscribe():
 def health():
     return jsonify({'status': 'ok'}), 200
 
+# ------------------------- WEEKLY EARNINGS RECAP ENDPOINT -------------------------
+@app.route('/send-weekly-report', methods=['GET'])
+def send_weekly_report():
+    """
+    Triggered by cron-job.org every Monday.
+    Fetches top 5 earnings surprises from your ticker list and emails subscribers.
+    """
+    import yfinance as yf
+    import pandas as pd
+    from datetime import datetime, timedelta
+
+    logger.info("Weekly earnings report job started")
+
+    # 1. Load ticker list (same as your main app)
+    try:
+        tickers_df = pd.read_csv('tickers.csv')
+        tickers = tickers_df['Symbol'].tolist()
+    except Exception as e:
+        logger.error(f"Failed to load tickers.csv: {e}")
+        return jsonify({'error': 'Ticker list not found'}), 500
+
+    # 2. Gather earnings surprises
+    earnings_data = []
+    for ticker in tickers[:50]:  # Limit to 50 to avoid long runtime (adjust as needed)
+        try:
+            stock = yf.Ticker(ticker)
+            earnings = stock.earnings_dates
+            if earnings is not None and not earnings.empty:
+                # Get most recent quarter
+                latest = earnings.iloc[0]
+                eps_actual = latest.get('eps_actual')
+                eps_estimate = latest.get('eps_estimate')
+                if pd.notna(eps_actual) and pd.notna(eps_estimate):
+                    surprise_pct = ((eps_actual - eps_estimate) / abs(eps_estimate)) * 100
+                    earnings_data.append({
+                        'ticker': ticker,
+                        'surprise_pct': surprise_pct,
+                        'eps_actual': eps_actual,
+                        'eps_estimate': eps_estimate,
+                        'report_date': latest.name.strftime('%Y-%m-%d') if hasattr(latest.name, 'strftime') else str(latest.name)
+                    })
+        except Exception as e:
+            logger.warning(f"Could not fetch earnings for {ticker}: {e}")
+            continue
+
+    if not earnings_data:
+        logger.warning("No earnings data found for any ticker")
+        return jsonify({'error': 'No earnings data'}), 500
+
+    # 3. Sort by surprise percentage (largest positive first)
+    sorted_by_surprise = sorted(earnings_data, key=lambda x: x['surprise_pct'], reverse=True)
+    top_5 = [x for x in sorted_by_surprise if x['surprise_pct'] > 0][:5]
+
+    if not top_5:
+        logger.warning("No positive earnings surprises found")
+        return jsonify({'message': 'No positive surprises this week'}), 200
+
+    # 4. Build HTML email content
+    email_subject = f"Tick Sniper Weekly – Top 5 Earnings Beats ({datetime.now().strftime('%b %d, %Y')})"
+
+    # Create a simple HTML table for the top 5
+    rows = ""
+    for item in top_5:
+        rows += f"""
+        <tr style="border-bottom:1px solid #334155;">
+            <td style="padding:10px; font-weight:bold;">{item['ticker']}</td>
+            <td style="padding:10px; color:#10b981;">+{item['surprise_pct']:.1f}%</td>
+            <td style="padding:10px;">Actual: ${item['eps_actual']:.2f}</td>
+            <td style="padding:10px;">Estimate: ${item['eps_estimate']:.2f}</td>
+        </tr>
+        """
+
+    html_body = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family: Arial, sans-serif; background:#0a0f1e; padding:20px;">
+        <div style="max-width:600px; margin:0 auto; background:#0f172a; border-radius:20px; padding:24px;">
+            <h2 style="color:#ffffff;">📊 Top 5 Earnings Beats This Week</h2>
+            <p style="color:#cbd5e1;">The biggest positive surprises from recent reports (actual vs. estimate).</p>
+            <table style="width:100%; border-collapse:collapse; color:#e2e8f0;">
+                <thead>
+                    <tr style="background:#1e293b;">
+                        <th style="padding:10px; text-align:left;">Ticker</th>
+                        <th style="padding:10px; text-align:left;">Surprise</th>
+                        <th style="padding:10px; text-align:left;">Actual EPS</th>
+                        <th style="padding:10px; text-align:left;">Estimate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows}
+                </tbody>
+            </table>
+            <p style="margin-top:24px;"><a href="https://ai-swing-trade-scanner-316.streamlit.app/?utm_source=email&utm_medium=weekly_report&utm_campaign=earnings_recap" style="background:#3b82f6; color:white; padding:10px 20px; text-decoration:none; border-radius:40px;">👉 Scan more stocks with AI</a></p>
+            <p style="color:#64748b; font-size:12px;">You received this because you subscribed to Tick Sniper’s weekly report. <a href="{{ unsubscribe_link }}" style="color:#60a5fa;">Unsubscribe</a></p>
+        </div>
+    </body>
+    </html>
+    """
+
+    # 5. Send via Brevo to all contacts in your list
+    brevo_payload = {
+        "subject": email_subject,
+        "sender": {"name": "Tick Sniper", "email": "weekly@ticksniper.com"},  # Change to your verified sender
+        "to": [{"email": "PLACEHOLDER"}],  # Will be replaced with actual list send
+        "htmlContent": html_body,
+        "listIds": [int(BREVO_LIST_ID)],
+        "replyTo": {"email": "support@ticksniper.com"}
+    }
+
+    headers = {
+        'Content-Type': 'application/json',
+        'api-key': BREVO_API_KEY
+    }
+
+    try:
+        # Send to the entire list (Brevo will send to all contacts in that list)
+        response = requests.post('https://api.brevo.com/v3/emailCampaigns', json=brevo_payload, headers=headers, timeout=30)
+        if response.status_code in (201, 204):
+            logger.info("Weekly report email sent successfully to list")
+            return jsonify({'status': 'sent', 'top_beats': top_5}), 200
+        else:
+            logger.error(f"Brevo campaign error: {response.text}")
+            return jsonify({'error': 'Failed to send email'}), 500
+    except Exception as e:
+        logger.error(f"Exception sending weekly report: {e}")
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(port=4242)
