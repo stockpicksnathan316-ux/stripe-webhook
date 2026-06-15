@@ -46,7 +46,6 @@ def ensure_numeric(df):
     return df
 
 def process_event_async(event):
-    """Process the webhook event in a background thread."""
     try:
         event_type = event['type']
         logger.info(f"Processing event: {event_type}")
@@ -63,6 +62,16 @@ def process_event_async(event):
             }, on_conflict='email').execute()
             logger.info(f"Upsert result: {result}")
             logger.info(f"✅ Pro access granted to {email}")
+
+            # --- UTM tracking (inside the same if block) ---
+            client_ref = session.get('client_reference_id')
+            if client_ref:
+                utm_result = supabase.table('user_acquisitions').select('utm_source, utm_medium, utm_campaign, ref').eq('email', client_ref).execute()
+                if utm_result.data:
+                    utm_data = utm_result.data[0]
+                    # Optional: update paid_users with utm_source (requires column)
+                    # supabase.table('paid_users').update({'utm_source': utm_data.get('utm_source')}).eq('email', client_ref).execute()
+                    logger.info(f"Subscription for {client_ref} came from utm_source={utm_data.get('utm_source')}")
             
         elif event_type == 'customer.subscription.deleted':
             sub = event['data']['object']
