@@ -63,15 +63,16 @@ def process_event_async(event):
             logger.info(f"Upsert result: {result}")
             logger.info(f"✅ Pro access granted to {email}")
 
-            # --- UTM tracking (inside the same if block) ---
-            client_ref = session.get('client_reference_id')
+            # After upserting paid_users, capture client_reference_id
+            client_ref = getattr(session, 'client_reference_id', None)
             if client_ref:
+                # Fetch UTM data from user_acquisitions
                 utm_result = supabase.table('user_acquisitions').select('utm_source, utm_medium, utm_campaign, ref').eq('email', client_ref).execute()
                 if utm_result.data:
                     utm_data = utm_result.data[0]
-                    # Optional: update paid_users with utm_source (requires column)
-                    # supabase.table('paid_users').update({'utm_source': utm_data.get('utm_source')}).eq('email', client_ref).execute()
                     logger.info(f"Subscription for {client_ref} came from utm_source={utm_data.get('utm_source')}")
+                    # Optionally update paid_users with utm_source (if column exists)
+                    # supabase.table('paid_users').update({'utm_source': utm_data.get('utm_source')}).eq('email', client_ref).execute()
             
         elif event_type == 'customer.subscription.deleted':
             sub = event['data']['object']
