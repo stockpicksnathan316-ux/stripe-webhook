@@ -186,9 +186,9 @@ def send_weekly_report():
 
     # 2. Gather earnings surprises (with politeness delay)
     earnings_data = []
-    for ticker in tickers[:30]:  # Reduced to 30 tickers
+    for ticker in tickers[:20]:  # Reduced to 20 tickers
         try:
-            time.sleep(0.5)  # Wait 0.5 seconds between requests to avoid rate limiting
+            time.sleep(0.3)  # Wait 0.3 seconds between requests to avoid rate limiting
             stock = yf.Ticker(ticker)
             earnings = stock.earnings_dates
             if earnings is not None and not earnings.empty:
