@@ -3,3 +3,6 @@ gunicorn
 stripe
 supabase
 python-dotenv
+ 
+yfinance 
+pandas 
