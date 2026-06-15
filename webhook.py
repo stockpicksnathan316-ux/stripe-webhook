@@ -166,10 +166,6 @@ def health():
 # ------------------------- WEEKLY EARNINGS RECAP ENDPOINT -------------------------
 @app.route('/send-weekly-report', methods=['GET'])
 def send_weekly_report():
-    """
-    Triggered by cron-job.org every Monday.
-    Fetches top 5 earnings surprises from your ticker list and emails subscribers.
-    """
     import yfinance as yf
     import pandas as pd
     from datetime import datetime
@@ -177,73 +173,66 @@ def send_weekly_report():
     import traceback
 
     logger.info("Weekly earnings report job started")
+    time.sleep(3)  # Initial delay to avoid rate limit
 
     # 1. Load ticker list
     try:
         tickers_df = pd.read_csv('tickers.csv')
         tickers = tickers_df['Symbol'].tolist()
         logger.info(f"Loaded {len(tickers)} tickers")
-        logger.info(f"First 5 tickers: {tickers[:5]}")
+        tickers = tickers[:15]  # Process only first 15 tickers
+        logger.info(f"Processing first {len(tickers)} tickers: {tickers}")
     except Exception as e:
         logger.error(f"Failed to load tickers.csv: {e}")
         return jsonify({'error': 'Ticker list not found'}), 500
 
     # 2. Gather earnings surprises
     earnings_data = []
-    for ticker in tickers[:20]:
+    for ticker in tickers:
         logger.info(f"Loop iteration for {ticker}")
         try:
-            time.sleep(0.3)
+            time.sleep(1.0)  # 1 second between requests
             stock = yf.Ticker(ticker)
             earnings = stock.earnings_dates
-            logger.info(f"Ticker: {ticker}, earnings is None? {earnings is None}")
-
-            if earnings is not None and not earnings.empty:
-                logger.info(f"  -> Has earnings data, columns: {list(earnings.columns)}")
-                logger.info("  -> ENTERING EXTRACTION BLOCK")
-
-                # Find last reported quarter (where 'Reported EPS' is not NaN)
-                eps_actual = None
-                eps_estimate = None
-                report_date = None
-                for idx in range(len(earnings)):
-                    row = earnings.iloc[idx]
-                    actual = row.get('Reported EPS')
-                    if pd.notna(actual):
-                        eps_actual = actual
-                        eps_estimate = row.get('EPS Estimate')
-                        report_date = row.name
-                        break
-
-                if eps_actual is not None and pd.notna(eps_actual) and pd.notna(eps_estimate):
-                    surprise_pct = ((eps_actual - eps_estimate) / abs(eps_estimate)) * 100
-                    earnings_data.append({
-                        'ticker': ticker,
-                        'surprise_pct': surprise_pct,
-                        'eps_actual': eps_actual,
-                        'eps_estimate': eps_estimate,
-                        'report_date': report_date.strftime('%Y-%m-%d') if hasattr(report_date, 'strftime') else str(report_date)
-                    })
-                    logger.info(f"  -> Added {ticker} with surprise {surprise_pct:.1f}% (reported on {report_date})")
-                else:
-                    logger.info(f"  -> No reported EPS found for {ticker}")
-            else:
+            if earnings is None or earnings.empty:
                 logger.info(f"  -> No earnings data for {ticker}")
+                continue
 
-        except KeyError as e:
-            logger.warning(f"KeyError for {ticker}: {e} – skipping")
-            continue
+            logger.info(f"  -> Has earnings data, columns: {list(earnings.columns)}")
+            # Find last reported quarter
+            eps_actual = None
+            eps_estimate = None
+            report_date = None
+            for idx in range(len(earnings)):
+                row = earnings.iloc[idx]
+                actual = row.get('Reported EPS')
+                if pd.notna(actual):
+                    eps_actual = actual
+                    eps_estimate = row.get('EPS Estimate')
+                    report_date = row.name
+                    break
+            if eps_actual is not None and pd.notna(eps_actual) and pd.notna(eps_estimate):
+                surprise_pct = ((eps_actual - eps_estimate) / abs(eps_estimate)) * 100
+                earnings_data.append({
+                    'ticker': ticker,
+                    'surprise_pct': surprise_pct,
+                    'eps_actual': eps_actual,
+                    'eps_estimate': eps_estimate,
+                    'report_date': report_date.strftime('%Y-%m-%d') if hasattr(report_date, 'strftime') else str(report_date)
+                })
+                logger.info(f"  -> Added {ticker} with surprise {surprise_pct:.1f}%")
+            else:
+                logger.info(f"  -> No reported EPS for {ticker}")
         except Exception as e:
             logger.warning(f"Could not fetch earnings for {ticker}: {e}")
-            logger.warning(traceback.format_exc())
+            # Continue to next ticker
             continue
 
-    # 3. Check if any data was collected
     if not earnings_data:
         logger.warning("No earnings data found for any ticker")
         return jsonify({'error': 'No earnings data'}), 500
 
-    # 4. Sort and get top 5 positive surprises
+    # 3. Sort and get top 5 positive surprises
     sorted_by_surprise = sorted(earnings_data, key=lambda x: x['surprise_pct'], reverse=True)
     top_5 = [x for x in sorted_by_surprise if x['surprise_pct'] > 0][:5]
 
@@ -251,9 +240,8 @@ def send_weekly_report():
         logger.warning("No positive earnings surprises found")
         return jsonify({'message': 'No positive surprises this week'}), 200
 
-    # 5. Build HTML email content
+    # 4. Build email (same as before)
     email_subject = f"Tick Sniper Weekly – Top 5 Earnings Beats ({datetime.now().strftime('%b %d, %Y')})"
-
     rows = ""
     for item in top_5:
         rows += f"""
@@ -264,7 +252,6 @@ def send_weekly_report():
             <td style="padding:10px;">Estimate: ${item['eps_estimate']:.2f}</td>
         </tr>
         """
-
     html_body = f"""
     <!DOCTYPE html>
     <html>
@@ -293,33 +280,26 @@ def send_weekly_report():
     </html>
     """
 
-    # 6. Send via Brevo to your contact list
+    # 5. Send via Brevo
     brevo_payload = {
         "name": f"Tick Sniper Weekly - {datetime.now().strftime('%Y-%m-%d')}",
         "subject": email_subject,
-    "sender": {"name": "Tick Sniper", "email": "stockpicksnathan316@gmail.com"},  # Change to your verified sender
+        "sender": {"name": "Tick Sniper", "email": "stockpicksnathan316@gmail.com"},
         "type": "classic",
-        "recipients": {
-            "listIds": [int(BREVO_LIST_ID)]
-        },
-        "htmlContent": html_body,
+        "recipients": {"listIds": [int(BREVO_LIST_ID)]},
+        "htmlContent": html_body
     }
-
-    headers = {
-        'Content-Type': 'application/json',
-        'api-key': BREVO_API_KEY
-    }
-
+    headers = {'Content-Type': 'application/json', 'api-key': BREVO_API_KEY}
     try:
         response = requests.post('https://api.brevo.com/v3/emailCampaigns', json=brevo_payload, headers=headers, timeout=30)
         if response.status_code in (201, 204):
-            logger.info("Weekly report email sent successfully to list")
+            logger.info("Weekly report email sent successfully")
             return jsonify({'status': 'sent', 'top_beats': top_5}), 200
         else:
-            logger.error(f"Brevo campaign error: {response.text}")
+            logger.error(f"Brevo error: {response.text}")
             return jsonify({'error': 'Failed to send email'}), 500
     except Exception as e:
-        logger.error(f"Exception sending weekly report: {e}")
+        logger.error(f"Exception: {e}")
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
