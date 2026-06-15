@@ -295,11 +295,14 @@ def send_weekly_report():
 
     # 6. Send via Brevo to your contact list
     brevo_payload = {
+        "name": f"Tick Sniper Weekly - {datetime.now().strftime('%Y-%m-%d')}",
         "subject": email_subject,
-        "sender": {"name": "Tick Sniper", "email": "weekly@ticksniper.com"},  # CHANGE to your verified sender email
-        "to": [{"email": "PLACEHOLDER"}],
+    "sender": {"name": "Tick Sniper", "email": "weekly@ticksniper.com"},  # Change to your verified sender
+        "type": "classic",
+        "recipients": {
+            "listIds": [int(BREVO_LIST_ID)]
+        },
         "htmlContent": html_body,
-        "listIds": [int(BREVO_LIST_ID)],
         "replyTo": {"email": "support@ticksniper.com"}
     }
 
