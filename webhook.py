@@ -166,6 +166,10 @@ def health():
 # ------------------------- WEEKLY EARNINGS RECAP ENDPOINT -------------------------
 @app.route('/send-weekly-report', methods=['GET'])
 def send_weekly_report():
+    """
+    Triggered by cron-job.org every Monday.
+    Fetches top 5 earnings surprises from your ticker list and emails subscribers.
+    """
     import yfinance as yf
     import pandas as pd
     from datetime import datetime
@@ -174,7 +178,7 @@ def send_weekly_report():
 
     logger.info("Weekly earnings report job started")
 
-    # 1. Load tickers
+    # 1. Load ticker list
     try:
         tickers_df = pd.read_csv('tickers.csv')
         tickers = tickers_df['Symbol'].tolist()
@@ -184,22 +188,24 @@ def send_weekly_report():
         logger.error(f"Failed to load tickers.csv: {e}")
         return jsonify({'error': 'Ticker list not found'}), 500
 
-    # 2. Gather earnings surprises
+    # 2. Gather earnings surprises (with politeness delay)
     earnings_data = []
-    for ticker in tickers[:20]:
+    for ticker in tickers[:20]:  # Process first 20 tickers
         logger.info(f"Loop iteration for {ticker}")
         try:
-            time.sleep(0.3)
+            time.sleep(0.3)  # Be polite to Yahoo Finance
             stock = yf.Ticker(ticker)
             earnings = stock.earnings_dates
             logger.info(f"Ticker: {ticker}, earnings is None? {earnings is None}")
+
             if earnings is not None and not earnings.empty:
                 logger.info(f"  -> Has earnings data, columns: {list(earnings.columns)}")
                 
-                # Process most recent quarter
+                # --- Extract most recent quarter ---
                 latest = earnings.iloc[0]
-                eps_actual = latest.get('eps_actual')
-                eps_estimate = latest.get('eps_estimate')
+                eps_estimate = latest.get('EPS Estimate')
+                eps_actual = latest.get('Reported EPS')
+                
                 if pd.notna(eps_actual) and pd.notna(eps_estimate):
                     surprise_pct = ((eps_actual - eps_estimate) / abs(eps_estimate)) * 100
                     earnings_data.append({
@@ -210,6 +216,8 @@ def send_weekly_report():
                         'report_date': latest.name.strftime('%Y-%m-%d') if hasattr(latest.name, 'strftime') else str(latest.name)
                     })
                     logger.info(f"  -> Added {ticker} with surprise {surprise_pct:.1f}%")
+                else:
+                    logger.info(f"  -> Missing EPS data for {ticker}")
             else:
                 logger.info(f"  -> No earnings data for {ticker}")
         except Exception as e:
@@ -217,7 +225,7 @@ def send_weekly_report():
             logger.warning(traceback.format_exc())
             continue
 
-    # 3. Check if any data was collected (AFTER the loop)
+    # 3. Check if any data was collected
     if not earnings_data:
         logger.warning("No earnings data found for any ticker")
         return jsonify({'error': 'No earnings data'}), 500
@@ -230,8 +238,9 @@ def send_weekly_report():
         logger.warning("No positive earnings surprises found")
         return jsonify({'message': 'No positive surprises this week'}), 200
 
-    # 5. Build HTML email (same as before)
+    # 5. Build HTML email content
     email_subject = f"Tick Sniper Weekly – Top 5 Earnings Beats ({datetime.now().strftime('%b %d, %Y')})"
+
     rows = ""
     for item in top_5:
         rows += f"""
@@ -271,16 +280,20 @@ def send_weekly_report():
     </html>
     """
 
-    # 6. Send via Brevo (transactional email to list)
+    # 6. Send via Brevo to your contact list
     brevo_payload = {
         "subject": email_subject,
-        "sender": {"name": "Tick Sniper", "email": "weekly@ticksniper.com"},
-        "to": [{"email": "PLACEHOLDER"}],
+        "sender": {"name": "Tick Sniper", "email": "weekly@ticksniper.com"},  # Replace with your verified sender
+        "to": [{"email": "PLACEHOLDER"}],  # Required placeholder; Brevo uses listIds
         "htmlContent": html_body,
         "listIds": [int(BREVO_LIST_ID)],
         "replyTo": {"email": "support@ticksniper.com"}
     }
-    headers = {'Content-Type': 'application/json', 'api-key': BREVO_API_KEY}
+
+    headers = {
+        'Content-Type': 'application/json',
+        'api-key': BREVO_API_KEY
+    }
 
     try:
         response = requests.post('https://api.brevo.com/v3/emailCampaigns', json=brevo_payload, headers=headers, timeout=30)
