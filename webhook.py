@@ -297,13 +297,13 @@ def send_weekly_report():
     brevo_payload = {
         "name": f"Tick Sniper Weekly - {datetime.now().strftime('%Y-%m-%d')}",
         "subject": email_subject,
-    "sender": {"name": "Tick Sniper", "email": "weekly@ticksniper.com"},  # Change to your verified sender
+    "sender": {"name": "Tick Sniper", "email": "stockpicksnathan316@gmail.com"},  # Change to your verified sender
         "type": "classic",
         "recipients": {
             "listIds": [int(BREVO_LIST_ID)]
         },
         "htmlContent": html_body,
-        "replyTo": {"email": "support@ticksniper.com"}
+        "replyTo": {"email": "stockpicksnathan316@gmail.com"}
     }
 
     headers = {
