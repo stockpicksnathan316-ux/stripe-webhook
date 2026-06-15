@@ -303,7 +303,6 @@ def send_weekly_report():
             "listIds": [int(BREVO_LIST_ID)]
         },
         "htmlContent": html_body,
-        "replyTo": {"email": "stockpicksnathan316@gmail.com"}
     }
 
     headers = {
