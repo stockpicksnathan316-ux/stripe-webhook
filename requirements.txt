@@ -6,3 +6,4 @@ python-dotenv
  
 yfinance 
 pandas 
+lxml

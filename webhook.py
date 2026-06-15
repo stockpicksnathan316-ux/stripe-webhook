@@ -7,6 +7,7 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from supabase import create_client
 from dotenv import load_dotenv
+import time
 
 # Load environment variables
 load_dotenv()
@@ -183,10 +184,11 @@ def send_weekly_report():
         logger.error(f"Failed to load tickers.csv: {e}")
         return jsonify({'error': 'Ticker list not found'}), 500
 
-    # 2. Gather earnings surprises
+    # 2. Gather earnings surprises (with politeness delay)
     earnings_data = []
-    for ticker in tickers[:50]:  # Limit to 50 to avoid long runtime (adjust as needed)
+    for ticker in tickers[:30]:  # Reduced to 30 tickers
         try:
+            time.sleep(0.5)  # Wait 0.5 seconds between requests to avoid rate limiting
             stock = yf.Ticker(ticker)
             earnings = stock.earnings_dates
             if earnings is not None and not earnings.empty:
