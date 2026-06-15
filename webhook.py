@@ -202,7 +202,7 @@ def send_weekly_report():
                 logger.info(f"  -> Has earnings data, columns: {list(earnings.columns)}")
                 logger.info("  -> ENTERING EXTRACTION BLOCK")
 
-                # Find the last reported quarter (where 'Reported EPS' is not NaN)
+                # Find last reported quarter (where 'Reported EPS' is not NaN)
                 eps_actual = None
                 eps_estimate = None
                 report_date = None
@@ -226,12 +226,11 @@ def send_weekly_report():
                     })
                     logger.info(f"  -> Added {ticker} with surprise {surprise_pct:.1f}% (reported on {report_date})")
                 else:
-                    logger.info(f"  -> No reported EPS found for {ticker} (only estimates or future quarters)")
+                    logger.info(f"  -> No reported EPS found for {ticker}")
             else:
                 logger.info(f"  -> No earnings data for {ticker}")
 
         except KeyError as e:
-            # Known yfinance bug: 'Earnings Date' column missing – skip
             logger.warning(f"KeyError for {ticker}: {e} – skipping")
             continue
         except Exception as e:
@@ -251,6 +250,75 @@ def send_weekly_report():
     if not top_5:
         logger.warning("No positive earnings surprises found")
         return jsonify({'message': 'No positive surprises this week'}), 200
+
+    # 5. Build HTML email content
+    email_subject = f"Tick Sniper Weekly – Top 5 Earnings Beats ({datetime.now().strftime('%b %d, %Y')})"
+
+    rows = ""
+    for item in top_5:
+        rows += f"""
+        <tr style="border-bottom:1px solid #334155;">
+            <td style="padding:10px; font-weight:bold;">{item['ticker']}</td>
+            <td style="padding:10px; color:#10b981;">+{item['surprise_pct']:.1f}%</td>
+            <td style="padding:10px;">Actual: ${item['eps_actual']:.2f}</td>
+            <td style="padding:10px;">Estimate: ${item['eps_estimate']:.2f}</td>
+        </tr>
+        """
+
+    html_body = f"""
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"></head>
+    <body style="font-family: Arial, sans-serif; background:#0a0f1e; padding:20px;">
+        <div style="max-width:600px; margin:0 auto; background:#0f172a; border-radius:20px; padding:24px;">
+            <h2 style="color:#ffffff;">📊 Top 5 Earnings Beats This Week</h2>
+            <p style="color:#cbd5e1;">The biggest positive surprises from recent reports (actual vs. estimate).</p>
+            <table style="width:100%; border-collapse:collapse; color:#e2e8f0;">
+                <thead>
+                    <tr style="background:#1e293b;">
+                        <th style="padding:10px; text-align:left;">Ticker</th>
+                        <th style="padding:10px; text-align:left;">Surprise</th>
+                        <th style="padding:10px; text-align:left;">Actual EPS</th>
+                        <th style="padding:10px; text-align:left;">Estimate</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {rows}
+                </tbody>
+            </table>
+            <p style="margin-top:24px;"><a href="https://ai-swing-trade-scanner-316.streamlit.app/?utm_source=email&utm_medium=weekly_report&utm_campaign=earnings_recap" style="background:#3b82f6; color:white; padding:10px 20px; text-decoration:none; border-radius:40px;">👉 Scan more stocks with AI</a></p>
+            <p style="color:#64748b; font-size:12px;">You received this because you subscribed to Tick Sniper’s weekly report. <a href="{{ unsubscribe_link }}" style="color:#60a5fa;">Unsubscribe</a></p>
+        </div>
+    </body>
+    </html>
+    """
+
+    # 6. Send via Brevo to your contact list
+    brevo_payload = {
+        "subject": email_subject,
+        "sender": {"name": "Tick Sniper", "email": "weekly@ticksniper.com"},  # CHANGE to your verified sender email
+        "to": [{"email": "PLACEHOLDER"}],
+        "htmlContent": html_body,
+        "listIds": [int(BREVO_LIST_ID)],
+        "replyTo": {"email": "support@ticksniper.com"}
+    }
+
+    headers = {
+        'Content-Type': 'application/json',
+        'api-key': BREVO_API_KEY
+    }
+
+    try:
+        response = requests.post('https://api.brevo.com/v3/emailCampaigns', json=brevo_payload, headers=headers, timeout=30)
+        if response.status_code in (201, 204):
+            logger.info("Weekly report email sent successfully to list")
+            return jsonify({'status': 'sent', 'top_beats': top_5}), 200
+        else:
+            logger.error(f"Brevo campaign error: {response.text}")
+            return jsonify({'error': 'Failed to send email'}), 500
+    except Exception as e:
+        logger.error(f"Exception sending weekly report: {e}")
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     app.run(port=4242)
