@@ -188,24 +188,25 @@ def send_weekly_report():
         logger.error(f"Failed to load tickers.csv: {e}")
         return jsonify({'error': 'Ticker list not found'}), 500
 
-    # 2. Gather earnings surprises (with politeness delay)
+    # 2. Gather earnings surprises
     earnings_data = []
-    for ticker in tickers[:20]:  # Process first 20 tickers
+    for ticker in tickers[:20]:
         logger.info(f"Loop iteration for {ticker}")
         try:
-            time.sleep(0.3)  # Be polite to Yahoo Finance
+            time.sleep(0.3)
             stock = yf.Ticker(ticker)
             earnings = stock.earnings_dates
             logger.info(f"Ticker: {ticker}, earnings is None? {earnings is None}")
 
             if earnings is not None and not earnings.empty:
                 logger.info(f"  -> Has earnings data, columns: {list(earnings.columns)}")
-                
-                # --- Extract most recent quarter ---
+                logger.info("  -> ENTERING EXTRACTION BLOCK")
+
+                # Use the most recent quarter (first row)
                 latest = earnings.iloc[0]
                 eps_estimate = latest.get('EPS Estimate')
                 eps_actual = latest.get('Reported EPS')
-                
+
                 if pd.notna(eps_actual) and pd.notna(eps_estimate):
                     surprise_pct = ((eps_actual - eps_estimate) / abs(eps_estimate)) * 100
                     earnings_data.append({
@@ -217,9 +218,14 @@ def send_weekly_report():
                     })
                     logger.info(f"  -> Added {ticker} with surprise {surprise_pct:.1f}%")
                 else:
-                    logger.info(f"  -> Missing EPS data for {ticker}")
+                    logger.info(f"  -> Missing EPS data for {ticker} (actual={eps_actual}, estimate={eps_estimate})")
             else:
                 logger.info(f"  -> No earnings data for {ticker}")
+
+        except KeyError as e:
+            # Known yfinance bug: 'Earnings Date' column missing – treat as no data
+            logger.warning(f"KeyError for {ticker}: {e} – skipping")
+            continue
         except Exception as e:
             logger.warning(f"Could not fetch earnings for {ticker}: {e}")
             logger.warning(traceback.format_exc())
