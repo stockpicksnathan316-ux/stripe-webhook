@@ -180,9 +180,13 @@ def send_weekly_report():
     try:
         tickers_df = pd.read_csv('tickers.csv')
         tickers = tickers_df['Symbol'].tolist()
+        logger.info(f"Loaded {len(tickers)} tickers")
+        logger.info(f"First 5 tickers: {tickers[:5]}")
     except Exception as e:
         logger.error(f"Failed to load tickers.csv: {e}")
         return jsonify({'error': 'Ticker list not found'}), 500
+
+
 
     # 2. Gather earnings surprises (with politeness delay)
     earnings_data = []
