@@ -426,37 +426,57 @@ def check_alerts():
 
     results = []
     for alert in alerts:
-        ticker = alert['ticker'].upper()  # ensure uppercase
+        ticker = alert['ticker'].upper()
         user_email = alert['user_email']
         threshold = alert['threshold']
         alpha = alert.get('alpha', 0.7)
 
+        logger.info(f"Processing alert: {ticker} for {user_email}, threshold={threshold}")
+
         try:
+            # 1. Download price data
             df = yf.download(ticker, period="1y", progress=False)
+            logger.info(f"Downloaded {len(df)} rows for {ticker}")
             if df.empty:
+                logger.warning(f"No data for {ticker}")
                 results.append({'ticker': ticker, 'status': 'No data'})
                 continue
 
-            # --- FIX: Drop the ticker level from MultiIndex ---
+            # 2. Fix MultiIndex if present
             if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.droplevel(1)  # removes the ticker level, keeps 'Open', 'High', etc.
-            # ------------------------------------------------
+                df.columns = df.columns.droplevel(1)
+                logger.info(f"Flattened MultiIndex for {ticker}")
 
+            # 3. Get sector and ETF
             sector = TICKERS.get(ticker, 'Unknown')
             sector_etf = sector_to_etf.get(sector, None)
+            logger.info(f"Sector: {sector}, ETF: {sector_etf}")
+
+            # 4. Add enhanced features
             fundamentals = get_fundamentals(ticker)
             df_enhanced = add_enhanced_features(df, ticker, macro_df, sector_etf, fundamentals)
+            logger.info(f"Enhanced features shape: {df_enhanced.shape}")
 
-            latest = df_enhanced[feat_cols].fillna(0).iloc[[-1]]
+            # 5. Reindex to match model's feature columns, fill missing with 0
+            df_aligned = df_enhanced.reindex(columns=feat_cols, fill_value=0)
+            logger.info(f"Reindexed shape: {df_aligned.shape}, missing columns: {set(feat_cols) - set(df_aligned.columns)}")
+
+            # 6. Take the latest row and ensure numeric type
+            latest = df_aligned.iloc[[-1]]
             latest = latest.astype('float32').replace([float('inf'), -float('inf')], 0.0).fillna(0.0)
 
+            # 7. Predict
             prob = model.predict_proba(latest)[0][1]
+            logger.info(f"Prediction for {ticker}: {prob:.4f} (threshold: {threshold})")
 
+            # 8. Check threshold
             if prob >= threshold:
                 send_alert_email(user_email, ticker, prob, threshold)
                 results.append({'ticker': ticker, 'status': 'Alert sent', 'prob': prob})
+                logger.info(f"Alert sent for {ticker} to {user_email}")
             else:
                 results.append({'ticker': ticker, 'status': 'Below threshold', 'prob': prob})
+                logger.info(f"Probability {prob:.4f} below threshold for {ticker}")
 
         except Exception as e:
             logger.error(f"Error processing {ticker}: {e}")
@@ -464,6 +484,7 @@ def check_alerts():
             logger.error(traceback.format_exc())
             results.append({'ticker': ticker, 'status': 'Error', 'error': str(e)})
 
+        # 9. Polite delay to avoid rate limiting
         time.sleep(0.5)
 
     return jsonify({'processed': len(alerts), 'results': results}), 200
