@@ -7,3 +7,9 @@ python-dotenv
 yfinance 
 pandas 
 lxml
+requests
+xgboost
+lightgbm
+scikit-learn
+ta
+joblib
