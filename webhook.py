@@ -426,7 +426,7 @@ def check_alerts():
 
     results = []
     for alert in alerts:
-        ticker = alert['ticker']
+        ticker = alert['ticker'].upper()  # ensure uppercase
         user_email = alert['user_email']
         threshold = alert['threshold']
         alpha = alert.get('alpha', 0.7)
@@ -437,10 +437,10 @@ def check_alerts():
                 results.append({'ticker': ticker, 'status': 'No data'})
                 continue
 
-            # --- FIX: Flatten MultiIndex columns if any ---
+            # --- FIX: Drop the ticker level from MultiIndex ---
             if isinstance(df.columns, pd.MultiIndex):
-                df.columns = ['_'.join(col).strip() for col in df.columns.values]
-            # ---------------------------------------------
+                df.columns = df.columns.droplevel(1)  # removes the ticker level, keeps 'Open', 'High', etc.
+            # ------------------------------------------------
 
             sector = TICKERS.get(ticker, 'Unknown')
             sector_etf = sector_to_etf.get(sector, None)
