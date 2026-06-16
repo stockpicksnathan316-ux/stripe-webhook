@@ -429,30 +429,29 @@ def check_alerts():
         ticker = alert['ticker']
         user_email = alert['user_email']
         threshold = alert['threshold']
-        alpha = alert.get('alpha', 0.7)  # default if not stored
+        alpha = alert.get('alpha', 0.7)
 
         try:
-            # Fetch price data
             df = yf.download(ticker, period="1y", progress=False)
             if df.empty:
                 results.append({'ticker': ticker, 'status': 'No data'})
                 continue
 
-            # Get sector and ETF
+            # --- FIX: Flatten MultiIndex columns if any ---
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = ['_'.join(col).strip() for col in df.columns.values]
+            # ---------------------------------------------
+
             sector = TICKERS.get(ticker, 'Unknown')
             sector_etf = sector_to_etf.get(sector, None)
-
-            # Add enhanced features (requires fundamentals)
             fundamentals = get_fundamentals(ticker)
             df_enhanced = add_enhanced_features(df, ticker, macro_df, sector_etf, fundamentals)
 
-            # Prepare latest row for prediction
             latest = df_enhanced[feat_cols].fillna(0).iloc[[-1]]
             latest = latest.astype('float32').replace([float('inf'), -float('inf')], 0.0).fillna(0.0)
 
             prob = model.predict_proba(latest)[0][1]
 
-            # If probability exceeds threshold, send email
             if prob >= threshold:
                 send_alert_email(user_email, ticker, prob, threshold)
                 results.append({'ticker': ticker, 'status': 'Alert sent', 'prob': prob})
@@ -461,10 +460,11 @@ def check_alerts():
 
         except Exception as e:
             logger.error(f"Error processing {ticker}: {e}")
+            import traceback
             logger.error(traceback.format_exc())
             results.append({'ticker': ticker, 'status': 'Error', 'error': str(e)})
 
-        time.sleep(0.5)  # Be polite to Yahoo
+        time.sleep(0.5)
 
     return jsonify({'processed': len(alerts), 'results': results}), 200
 
